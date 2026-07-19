@@ -1,0 +1,240 @@
+<!DOCTYPE html>
+<html lang="en">
+<head>
+  <meta charset="UTF-8">
+  <meta name="viewport" content="width=device-width, initial-scale=1.0">
+  <title>Secure Vault</title>
+  <style>
+    :root {
+      --bg: #F4F7F5; --text: #2C3E30; --card: #FFFFFF; 
+      --primary: #2E7D32; --primary-hover: #1B5E20;
+      --border: #E0E8E0; --shadow: 0 4px 12px rgba(0,0,0,0.06);
+    }
+    [data-theme="dark"] {
+      --bg: #121612; --text: #E8F0E8; --card: #1E241E; 
+      --primary: #66BB6A; --primary-hover: #81C784;
+      --border: #2A332A; --shadow: 0 4px 12px rgba(0,0,0,0.3);
+    }
+    * { box-sizing: border-box; }
+    body { 
+      font-family: system-ui, -apple-system, BlinkMacSystemFont, 'Segoe UI', Roboto, sans-serif; 
+      margin: 0; padding: 0; background: var(--bg); color: var(--text); 
+      padding-bottom: 40px; 
+    }
+    
+    /* Elegant Lock Screen */
+    #lock-screen { 
+      min-height: 100vh; display: flex; align-items: center; justify-content: center; 
+      background: linear-gradient(135deg, #2E7D32 0%, #1B5E20 100%); padding: 20px;
+    }
+    #lock-screen .card {
+      width: 100%; max-width: 420px; border-radius: 20px; border: none;
+      box-shadow: 0 15px 35px rgba(0,0,0,0.25); text-align: center; padding: 35px 25px;
+    }
+    #lock-screen h2 { margin-top: 0; color: var(--primary); font-size: 1.8rem; font-weight: 600; }
+    
+    /* App Header */
+    header { 
+      background: var(--primary); color: white; padding: 20px 15px; 
+      display: flex; justify-content: space-between; align-items: center; 
+      position: sticky; top: 0; z-index: 10; box-shadow: 0 2px 10px rgba(0,0,0,0.1);
+    }
+    header h2 { margin: 0; font-size: 1.4rem; font-weight: 600; }
+    
+    .container { max-width: 600px; margin: 0 auto; padding: 20px 15px; }
+    .card { 
+      background: var(--card); padding: 18px; margin-bottom: 14px; 
+      border-radius: 16px; box-shadow: var(--shadow); border: 1px solid var(--border); 
+    }
+    input, textarea, button { 
+      width: 100%; margin: 8px 0; padding: 14px; font-size: 16px; 
+      border-radius: 12px; border: 1px solid var(--border); font-family: inherit;
+    }
+    input, textarea { background: var(--bg); color: var(--text); transition: all 0.2s; }
+    input:focus, textarea:focus { 
+      outline: none; border-color: var(--primary); 
+      box-shadow: 0 0 0 3px rgba(46,125,50,0.15); 
+    }
+    button { 
+      background: var(--primary); color: white; border: none; font-weight: 600; 
+      cursor: pointer; transition: background 0.2s, transform 0.1s; 
+    }
+    button:hover { background: var(--primary-hover); }
+    button:active { transform: scale(0.98); }
+    .btn-red { background: #D9534F; width: auto; padding: 8px 15px; margin: 0; }
+    .btn-red:hover { background: #C9302C; }
+    .btn-orange { background: #F0AD4E; }
+    .btn-orange:hover { background: #EC971F; }
+    .hidden { display: none !important; }
+    .pass-row { display: flex; gap: 10px; align-items: center; }
+    .pass-row input { margin: 0; }
+    .toolbar { display: flex; gap: 10px; margin-bottom: 15px; flex-wrap: wrap; }
+    .toolbar button { flex: 1; min-width: 120px; }
+  </style>
+</head>
+<body>
+
+<!-- LOCK SCREEN -->
+<div id="lock-screen">
+  <div class="card">
+    <div style="font-size: 3.5rem; margin-bottom: 5px;">🔒</div>
+    <h2>Secure Vault</h2>
+    <p style="color: #666; margin-bottom: 25px; font-size: 15px;">Enter Master Password to unlock or create your vault.</p>
+    <input type="password" id="master-pass" placeholder="Master Password" style="text-align: center;">
+    <button onclick="unlock()" style="margin-top: 15px; font-size: 1.1rem; padding: 15px;">Unlock / Create</button>
+    <input type="file" id="load-file" accept=".json" class="hidden" onchange="loadVault(this)">
+    <p style="font-size: 12px; color: #999; margin-top: 20px;">Your data stays with you. 100% Portable.</p>
+  </div>
+</div>
+
+<!-- APP SCREEN -->
+<div id="app-screen" class="hidden">
+  <header>
+    <h2>🔐 My Vault</h2>
+    <button class="btn-red" onclick="lock()">Lock</button>
+  </header>
+  
+  <div class="container">
+    <div class="toolbar">
+      <button onclick="document.getElementById('load-file').click()">📂 Load USB</button>
+      <button onclick="saveVault()">💾 Save USB</button>
+      <button class="btn-orange" onclick="showAddForm()">➕ Add Entry</button>
+    </div>
+    
+    <input type="search" id="search" placeholder="🔍 Search site or username..." oninput="renderVault()" style="margin-bottom: 15px;">
+    
+    <!-- Add/Edit Form -->
+    <div id="entry-form" class="card hidden">
+      <input type="text" id="site" placeholder="Site / App (e.g., Google)">
+      <input type="text" id="user" placeholder="Username / Email">
+      <input type="text" id="pass" placeholder="Password">
+      <textarea id="notes" placeholder="Notes (optional)" rows="3" style="font-family:inherit;"></textarea>
+      <button onclick="saveEntry()">Save Entry</button>
+      <button class="btn-red" onclick="hideForm()">Cancel</button>
+    </div>
+
+    <div id="vault-list"></div>
+  </div>
+</div>
+
+<script>
+let masterKey = "";
+let vault = [];
+let editingId = null;
+
+// Basic Offline Encryption (XOR + Base64)
+function encrypt(text, key) {
+  let res = '';
+  for (let i = 0; i < text.length; i++) res += String.fromCharCode(text.charCodeAt(i) ^ key.charCodeAt(i % key.length));
+  return btoa(unescape(encodeURIComponent(res)));
+}
+function decrypt(base64, key) {
+  let text = decodeURIComponent(escape(atob(base64)));
+  let res = '';
+  for (let i = 0; i < text.length; i++) res += String.fromCharCode(text.charCodeAt(i) ^ key.charCodeAt(i % key.length));
+  return res;
+}
+
+// Lock / Unlock
+function unlock() {
+  const pw = document.getElementById('master-pass').value;
+  if (!pw) return alert('Password required');
+  masterKey = pw;
+  document.getElementById('lock-screen').classList.add('hidden');
+  document.getElementById('app-screen').classList.remove('hidden');
+  const cached = localStorage.getItem('vault_cache');
+  if (cached) { try { vault = JSON.parse(decrypt(cached, masterKey)); } catch(e) { vault = []; } }
+  renderVault();
+}
+function lock() {
+  masterKey = ""; vault = [];
+  document.getElementById('app-screen').classList.add('hidden');
+  document.getElementById('lock-screen').classList.remove('hidden');
+  document.getElementById('master-pass').value = '';
+}
+
+// USB Save / Load
+function saveVault() {
+  const data = encrypt(JSON.stringify(vault), masterKey);
+  const blob = new Blob([data], {type: 'application/json'});
+  const url = URL.createObjectURL(blob);
+  const a = document.createElement('a'); a.href = url; a.download = 'vault.json'; a.click();
+  localStorage.setItem('vault_cache', data);
+  alert('Saved! Move the downloaded "vault.json" to your thumb drive.');
+}
+function loadVault(input) {
+  const file = input.files[0];
+  if (!file) return;
+  const reader = new FileReader();
+  reader.onload = e => {
+    try {
+      vault = JSON.parse(decrypt(e.target.result, masterKey));
+      localStorage.setItem('vault_cache', e.target.result);
+      renderVault();
+    } catch(err) { alert('Wrong password or corrupted file!'); }
+  };
+  reader.readAsText(file);
+}
+
+// CRUD
+function showAddForm() { editingId = null; clearForm(); document.getElementById('entry-form').classList.remove('hidden'); }
+function hideForm() { document.getElementById('entry-form').classList.add('hidden'); }
+function clearForm() { ['site','user','pass','notes'].forEach(id => document.getElementById(id).value = ''); }
+
+function saveEntry() {
+  const site = document.getElementById('site').value;
+  const user = document.getElementById('user').value;
+  const pass = document.getElementById('pass').value;
+  const notes = document.getElementById('notes').value;
+  if (!site || !pass) return alert('Site and Password required');
+  
+  if (editingId) {
+    vault = vault.map(e => e.id === editingId ? { ...e, site, user, pass, notes } : e);
+  } else {
+    vault.push({ id: Date.now(), site, user, pass, notes });
+  }
+  hideForm(); renderVault();
+  localStorage.setItem('vault_cache', encrypt(JSON.stringify(vault), masterKey));
+}
+function editEntry(id) {
+  const e = vault.find(x => x.id === id);
+  document.getElementById('site').value = e.site;
+  document.getElementById('user').value = e.user;
+  document.getElementById('pass').value = e.pass;
+  document.getElementById('notes').value = e.notes;
+  editingId = id;
+  document.getElementById('entry-form').classList.remove('hidden');
+}
+function deleteEntry(id) {
+  if (!confirm('Delete this entry?')) return;
+  vault = vault.filter(x => x.id !== id);
+  renderVault();
+  localStorage.setItem('vault_cache', encrypt(JSON.stringify(vault), masterKey));
+}
+function copyPass(btn) { 
+  const val = btn.previousElementSibling.value;
+  navigator.clipboard.writeText(val).then(() => alert('Copied!')).catch(()=>alert('Copy failed')); 
+}
+
+function renderVault() {
+  const q = document.getElementById('search').value.toLowerCase();
+  const list = vault.filter(e => e.site.toLowerCase().includes(q) || e.user.toLowerCase().includes(q));
+  if (list.length === 0) { document.getElementById('vault-list').innerHTML = '<p style="text-align:center; color:#666;">No entries found.</p>'; return; }
+  document.getElementById('vault-list').innerHTML = list.map(e => `
+    <div class="card">
+      <strong>${e.site}</strong><br>
+      <small>👤 ${e.user}</small>
+      <div class="pass-row" style="margin-top:8px;">
+        <input type="text" value="${e.pass}" readonly>
+        <button style="width:auto; padding:10px;" onclick="copyPass(this)">Copy</button>
+      </div>
+      ${e.notes ? `<p style="font-size:14px; color:#666; margin:8px 0 0;">📝 ${e.notes}</p>` : ''}
+      <div style="display:flex; gap:8px; margin-top:10px;">
+        <button class="btn-orange" style="margin:0;" onclick="editEntry(${e.id})">Edit</button>
+        <button class="btn-red" style="margin:0;" onclick="deleteEntry(${e.id})">Delete</button>
+      </div>
+    </div>`).join('');
+}
+</script>
+</body>
+</html>
